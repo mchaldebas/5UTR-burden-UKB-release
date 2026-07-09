@@ -1,0 +1,26 @@
+# OS / editor junk
+.DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# NEVER commit individual-level UK Biobank data or anything derived per-participant
+*_ids_numeric.txt
+pheno_covar_final*.txt
+covariates*.csv
+ukb_*_raw.csv
+*.pgen
+*.psam
+*.pvar
+*.bed
+*.bim
+*.fam
+*.loco
+*.loco.gz
+final_complete_set/
+# Large aggregated inputs (regenerate on the approved platform via DATA_DIR)
+Master_Results_Clean.csv.gz
+Final_Triad_Comparison.csv.gz
+*.regenie
+*.regenie.gz

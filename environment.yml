@@ -1,0 +1,17 @@
+name: 5utr_burden
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy>=1.24
+  - pandas>=2.0
+  - scipy>=1.10
+  - matplotlib>=3.7
+  - seaborn>=0.12       # 06_analysis/01_nature2025_overlap.py
+  - openpyxl>=3.1       # 06_analysis/02,03 supplementary-table generators
+  - adjusttext>=0.8     # 07_figures/figure4.py, supp_figure1.py
+# NOTE: REGENIE, PLINK2, bcftools, bedtools, tabix/bgzip and the 5ULTRA CLI are
+# external binaries (not Python packages) and must be installed separately and
+# placed on PATH — see the "External tools" section of the README.
