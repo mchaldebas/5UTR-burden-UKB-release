@@ -15,8 +15,8 @@ choice is justified.
 
 The Supplementary Figure 1 QQ panels use the best-calibrated single models,
 flagged here with "In Fig. S1":
-    5ULTRA Binary (af5)  λGC ≈ 1.01
-    CADD   Binary (af5)  λGC ≈ 1.05
+    5ULTRA High-confidence (af5)  λGC ≈ 1.01
+    CADD   High-confidence (af5)  λGC ≈ 1.05
 
 Output: Supp_Table_lambdaGC.xlsx
 
@@ -35,9 +35,9 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-DATA_DIR    = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
+DATA_DIR    = Path(os.environ.get('DATA_DIR', 'data'))
 MASTER_CSV  = DATA_DIR / 'Master_Results_Clean.csv.gz'
-OUT_XLSX    = 'Supp_Table_lambdaGC.xlsx'
+OUT_XLSX    = 'Supp_Table_S5.xlsx'
 TRUE_K_MIN  = 5
 CHI2_MEDIAN = 0.4549364   # median of chi-squared(df=1) = qchisq(0.5, 1)
 
@@ -56,13 +56,15 @@ SCORER_LABELS = {
 }
 MODEL_LABELS = {
     '5U_Logic':        'Logic',
-    '5ULTRA_Binary':   'Binary',
+    '5ULTRA_Binary':   'High-confidence',
     '5ULTRA_Weighted': 'Weighted',
     'Flux_Joint':      'Flux Joint',
-    'CADD_Binary':     'Binary',
+    'CADD_Binary':     'High-confidence',
     'CADD_Weighted':   'Weighted',
 }
-SPEC_LABELS = {'rare': 'AF < 1%', 'af5': 'AF < 5%'}
+# Frequency spectra as defined in 02_annotation/01_generate_anno_masks.py
+# (freq_cut = 0.001 for 'rare', 0.05 for 'af5').
+SPEC_LABELS = {'rare': 'MAF < 0.1%', 'af5': 'MAF < 5%'}
 
 # Model × spectrum combinations shown in the Supp. Fig. 1 QQ panels.
 FIG_S1_CHOICE = {('5ULTRA_Binary', 'af5'), ('CADD_Binary', 'af5')}
@@ -145,7 +147,7 @@ ws.title = 'Genomic inflation (λGC)'
 # Title
 ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(COLS))
 title = ws.cell(row=1, column=1,
-                value='Supplementary Table — Genomic inflation factor (λGC) by model and '
+                value='Supplementary Table S5. Genomic inflation factor (λGC) by model and '
                       'allele-frequency spectrum')
 title.font      = Font(name='Calibri', bold=True, size=11)
 title.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)

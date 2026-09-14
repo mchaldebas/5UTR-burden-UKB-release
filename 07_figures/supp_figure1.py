@@ -2,18 +2,19 @@
 Supplementary Figure 1 — Miami plot + QQ plots (publication quality).
 
 Panel a  Miami plot: 5ULTRA (top, up) vs CADD (bottom, down).
-         Separate model-selection-corrected GWS thresholds per arm:
-           THRESH_U = 6.0 + log10(8) ≈ 6.903   (best of 4 models × 2 spectra)
-           THRESH_C = 6.0 + log10(4) ≈ 6.602   (best of 2 models × 2 spectra)
+         Separate GWS thresholds per arm, Bonferroni over the number of
+         association tests performed in each suite (see analysis_config.py):
+           THRESH_U = 0.05 / 518,380 -> -log10P > 7.016
+           THRESH_C = 0.05 / 107,033 -> -log10P > 6.331
 
-Panel b  QQ plot — 5ULTRA, single model (5ULTRA_Binary, af5 spectrum)
-Panel c  QQ plot — CADD,   single model (CADD_Binary,  af5 spectrum)
+Panel b  QQ plot — 5ULTRA, single model (High-confidence, score >= 0.5, af5)
+Panel c  QQ plot — CADD,   single model (High-confidence, CADD >= 5, af5)
 
          λGC is computed on ONE fixed model rather than the best-of-N per
          gene-pheno pair. Taking the max over 4 (or 2) models × 2 spectra is a
          selection on the most significant result, which inflates λGC by
          construction and makes it uninterpretable as a calibration metric.
-         The Binary masks (score/CADD-threshold-passing variants) are the
+         The High-confidence masks (score/CADD-threshold-passing variants) are the
          best-calibrated single models — λGC ≈ 1.01 (5ULTRA) / 1.05 (CADD) on
          >120k / >60k tests, versus the inflated Weighted masks — and the af5
          spectrum gives one independent association test per gene-pheno pair.
@@ -32,7 +33,7 @@ import matplotlib.ticker as mticker
 import scipy.stats as stats
 from adjustText import adjust_text
 
-DATA_DIR = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
+DATA_DIR = Path(os.environ.get('DATA_DIR', 'data'))
 
 # ── 0.  GLOBAL STYLE ──────────────────────────────────────────────────────────
 matplotlib.rcParams.update({
@@ -56,18 +57,17 @@ matplotlib.rcParams.update({
 })
 
 # ── 1.  CONSTANTS ─────────────────────────────────────────────────────────────
-MASTER_CSV    = DATA_DIR / 'Master_Results_Clean.csv.gz'
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from analysis_config import (MASTER_CSV, TRUE_K_MIN, THRESH_U, THRESH_C,
+                             MODELS_5ULTRA, MODELS_CADD, describe)
+
 BED_FILE      = DATA_DIR / 'mane_5utrs_with_names.bed'
-TRUE_K_MIN    = 5.0
 
-THRESHOLD      = 6.0
-N_MODELS_5ULTRA = 8    # 4 models × 2 spectra
-N_MODELS_CADD   = 4    # 2 models × 2 spectra
-THRESH_U = THRESHOLD + np.log10(N_MODELS_5ULTRA)   # 6.903
-THRESH_C = THRESHOLD + np.log10(N_MODELS_CADD)     # 6.602
-
-MODELS_5ULTRA = {'5U_Logic', '5ULTRA_Binary', '5ULTRA_Weighted', 'Flux_Joint'}
-MODELS_CADD   = {'CADD_Binary', 'CADD_Weighted'}
+# QQ panels are drawn against an uncorrected reference line, not the
+# suite thresholds (see the draw_qq calls below).
+THRESHOLD     = 6.0
+print(describe())
 
 # Colour palette consistent with main figures
 C_5U_DARK  = '#2E86C1'   # significant 5ULTRA
@@ -131,7 +131,7 @@ print(f"  CADD   gene-pheno pairs: {len(plot_cadd):,}")
 # λGC must be computed on ONE fixed model, NOT best-of-N. Selecting the max logp
 # over multiple models/spectra inflates λGC by construction (selection on the
 # most significant result) and makes it uninterpretable. We use the single
-# best-calibrated model (Binary mask = score/CADD-threshold-passing variants;
+# best-calibrated model (High-confidence mask = score/CADD-threshold-passing variants;
 # λGC ≈ 1.01 / 1.05) in the af5 spectrum, giving one independent association
 # test per gene-pheno pair.
 QQ_MODEL_5ULTRA = '5ULTRA_Binary'
@@ -291,9 +291,9 @@ def draw_qq(ax, exp_lp, obs_lp, lam, thresh, c_sig, label, panel_letter, ymax):
 # Shared y-axis across both QQ panels for direct visual comparison
 qq_ymax = max(obs_5u.max(), obs_ca.max()) * 1.10
 draw_qq(ax_b, exp_5u, obs_5u, lam_5u, THRESHOLD, C_5U_DARK,
-        '5ULTRA Binary (af5)', 'b', qq_ymax)
+        '5ULTRA High-confidence (af5)', 'b', qq_ymax)
 draw_qq(ax_c, exp_ca, obs_ca, lam_ca, THRESHOLD, C_CA_DARK,
-        'CADD Binary (af5)', 'c', qq_ymax)
+        'CADD High-confidence (af5)', 'c', qq_ymax)
 
 # ── 8.  SAVE ─────────────────────────────────────────────────────────────────
 for fmt in ('png', 'pdf'):

@@ -8,7 +8,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 
-DATA_DIR = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
+DATA_DIR = Path(os.environ.get('DATA_DIR', 'data'))
 
 matplotlib.rcParams.update({
     'font.family':       'Arial',
@@ -33,15 +33,28 @@ matplotlib.rcParams.update({
 FILE      = DATA_DIR / "Master_Results_Clean.csv.gz"
 THRESHOLD = 6.0
 TRUE_K    = 5.0
+ALPHA     = 0.05
 
-# Model-selection correction: each suite draws the best of K model×spectrum combinations.
-# Bonferroni adds log10(K) to the base threshold to ensure fair comparison.
+# --- Significance threshold scheme -------------------------------------
+# Set with e.g.  THRESH_SCHEME=pooled python figure2.py
+#
+#   current : -log10P > 6.0 + log10(K), K = models x spectra per suite.
+#             Dividing by the number of MODELS under-corrects the suite with
+#             more models (5ULTRA, K=8) and over-corrects the one with fewer
+#             (CADD, K=4), because the number of TESTS scales with K. The two
+#             suites therefore sit at bars differing by ~2.4x.
+#   exact   : p < 0.05 / N_tests_in_suite, N counted from the data (true_k>=5).
+#   pooled  : p < 0.05 / (N_5ULTRA + N_CADD), one identical bar for both
+#             suites, so the head-to-head discovery comparison is like-for-like.
+#
+# Actual thresholds are computed after the data are loaded (see below), since
+# 'exact' and 'pooled' depend on the realised test counts.
+SCHEME = os.environ.get('THRESH_SCHEME', 'exact').lower()
+assert SCHEME in {'current', 'exact', 'pooled'}, f"bad THRESH_SCHEME: {SCHEME}"
+
 N_MODELS_5ULTRA   = 8   # 4 models × 2 spectra (rare, af5)
 N_MODELS_CADD     = 4   # 2 models × 2 spectra
 N_MODELS_ABLATION = 4   # 2 models × 2 spectra
-THRESH_U = THRESHOLD + np.log10(N_MODELS_5ULTRA)    # 6.903
-THRESH_C = THRESHOLD + np.log10(N_MODELS_CADD)      # 6.602
-THRESH_A = THRESHOLD + np.log10(N_MODELS_ABLATION)  # 6.602
 
 from pheno_labels import PHENO_LABELS
 KNOWN_PHENOS = set(PHENO_LABELS.keys())
@@ -106,6 +119,28 @@ df.loc[df['model'].isin(MODELS_5ULTRA),   'target_group'] = '5ULTRA'
 df.loc[df['model'].isin(MODELS_CADD),     'target_group'] = 'CADD'
 df.loc[df['model'].isin(MODELS_ABLATION), 'target_group'] = 'Ablation'
 
+# --- resolve thresholds now that test counts are known -----------------
+N_TESTS_U = int((df['target_group'] == '5ULTRA').sum())
+N_TESTS_C = int((df['target_group'] == 'CADD').sum())
+N_TESTS_A = int((df['target_group'] == 'Ablation').sum())
+
+if SCHEME == 'current':
+    THRESH_U = THRESHOLD + np.log10(N_MODELS_5ULTRA)    # 6.903
+    THRESH_C = THRESHOLD + np.log10(N_MODELS_CADD)      # 6.602
+    THRESH_A = THRESHOLD + np.log10(N_MODELS_ABLATION)  # 6.602
+elif SCHEME == 'exact':
+    THRESH_U = -np.log10(ALPHA / N_TESTS_U)
+    THRESH_C = -np.log10(ALPHA / N_TESTS_C)
+    THRESH_A = -np.log10(ALPHA / N_TESTS_A)
+else:  # pooled
+    pooled   = -np.log10(ALPHA / (N_TESTS_U + N_TESTS_C))
+    THRESH_U = THRESH_C = THRESH_A = pooled
+
+print(f"Scheme '{SCHEME}': tests 5ULTRA={N_TESTS_U:,} CADD={N_TESTS_C:,} "
+      f"Ablation={N_TESTS_A:,}")
+print(f"  -log10P thresholds: 5ULTRA={THRESH_U:.3f} (p<{10**-THRESH_U:.2e})  "
+      f"CADD={THRESH_C:.3f} (p<{10**-THRESH_C:.2e})")
+
 u_best = df[df['target_group']=='5ULTRA'].sort_values('logp', ascending=False).drop_duplicates(['gene','pheno'])
 c_base = df[df['target_group']=='CADD'].sort_values('logp', ascending=False).drop_duplicates(['gene','pheno'])
 c_abl  = df[df['target_group']=='Ablation'].sort_values('logp', ascending=False).drop_duplicates(['gene','pheno'])
@@ -123,6 +158,8 @@ n_shared  = len(u_hits & c_hits)
 n_u_ex    = len(u_hits - c_hits)
 n_c_ex    = len(c_hits - u_hits)
 n_abl     = len(a_hits)
+n_abl_shared = len(a_hits & u_hits)   # ablated-CADD hits also found by 5ULTRA
+n_abl_ex     = n_abl - n_abl_shared
 ratio     = n_u_total / n_c_total
 
 u_sig = u_best[u_best['logp'] > THRESH_U].copy()
@@ -149,7 +186,8 @@ for cat in CAT_ORDER:
 print("  Category data:")
 for cat, d in cat_data.items():
     print(f"    {cat:20s}  5ULTRA excl={d['u_ex']:2d}  shared={d['shared']:2d}  CADD excl={d['c_ex']:2d}")
-print(f"  Totals: 5ULTRA={n_u_total}, CADD={n_c_total}, shared={n_shared}, ablation={n_abl}")
+print(f"  Totals: 5ULTRA={n_u_total}, CADD={n_c_total}, shared={n_shared}, "
+      f"ablation={n_abl} (shared w/5ULTRA {n_abl_shared}, only {n_abl_ex})")
 
 # Drop categories with zero associations in both scorers
 active_idx  = [i for i, cat in enumerate(CAT_ORDER)
@@ -285,7 +323,7 @@ for bar, (_, row) in zip(bars_b, panel_b_df.iterrows()):
     if row['trait']:
         ax_b.text(bx, by + 0.02, row['trait'],
                   va='top', ha='left', fontsize=8.0,
-                  fontstyle='italic', color='#AAAAAA')
+                  fontstyle='italic', color='#555555')
 
 ax_b.set_yticks(range(len(panel_b_df)))
 ax_b.set_yticklabels(panel_b_df['gene'], fontsize=9, fontweight='bold')
@@ -312,34 +350,45 @@ ax_b.text(-0.30, 1.02, 'b', transform=ax_b.transAxes,
 x_pos = np.arange(3)
 width = 0.62
 y_max = n_u_total + 40
+NUM_FS = 10          # uniform size for every numeric label in panel c
 
-ax_c.bar(x_pos[0], n_abl, width=width, color=C_ABL, edgecolor='#CCCCCC',
-         linewidth=0.4, zorder=3)
+# Ablated bar split like the CADD-baseline bar, so the portion still shared with
+# 5ULTRA is visible instead of hidden inside one flat grey (which also read too
+# close to the 'CADD only' colour).
+ax_c.bar(x_pos[0], n_abl_shared, width=width, color=C_SHARED, edgecolor='none', zorder=3)
+ax_c.bar(x_pos[0], n_abl_ex, bottom=n_abl_shared, width=width,
+         color=C_CD_EX, edgecolor='#AAAAAA', linewidth=0.3, zorder=3)
+if n_abl_shared >= 6:
+    ax_c.text(x_pos[0], n_abl_shared / 2, str(n_abl_shared),
+              ha='center', va='center', fontsize=NUM_FS, color='white', fontweight='bold')
+if n_abl_ex >= 4:
+    ax_c.text(x_pos[0], n_abl_shared + n_abl_ex / 2, f'+{n_abl_ex}',
+              ha='center', va='center', fontsize=NUM_FS, color='#2C2C2C', fontweight='bold')
 ax_c.text(x_pos[0], n_abl + 1.2, str(n_abl),
-          ha='center', va='bottom', fontsize=10.5, fontweight='bold', color='#888888')
+          ha='center', va='bottom', fontsize=NUM_FS, fontweight='bold', color='#444444')
 
 ax_c.bar(x_pos[1], n_shared, width=width, color=C_SHARED, edgecolor='none', zorder=3)
 ax_c.bar(x_pos[1], n_c_ex, bottom=n_shared, width=width,
          color=C_CD_EX, edgecolor='#AAAAAA', linewidth=0.3, zorder=3)
 if n_shared >= 6:
     ax_c.text(x_pos[1], n_shared / 2, str(n_shared),
-              ha='center', va='center', fontsize=8.5, color='white', fontweight='bold')
+              ha='center', va='center', fontsize=NUM_FS, color='white', fontweight='bold')
 if n_c_ex >= 4:
     ax_c.text(x_pos[1], n_shared + n_c_ex / 2, f'+{n_c_ex}',
-              ha='center', va='center', fontsize=8, color='#2C2C2C', fontweight='bold')
+              ha='center', va='center', fontsize=NUM_FS, color='#2C2C2C', fontweight='bold')
 ax_c.text(x_pos[1], n_c_total + 1.2, str(n_c_total),
-          ha='center', va='bottom', fontsize=11, fontweight='bold', color='#444444')
+          ha='center', va='bottom', fontsize=NUM_FS, fontweight='bold', color='#444444')
 
 ax_c.bar(x_pos[2], n_shared, width=width, color=C_SHARED, edgecolor='none', zorder=3)
 ax_c.bar(x_pos[2], n_u_ex, bottom=n_shared, width=width,
          color=C_5U_EX, edgecolor='none', zorder=3)
 if n_shared >= 6:
     ax_c.text(x_pos[2], n_shared / 2, str(n_shared),
-              ha='center', va='center', fontsize=8.5, color='white', fontweight='bold')
+              ha='center', va='center', fontsize=NUM_FS, color='white', fontweight='bold')
 ax_c.text(x_pos[2], n_shared + n_u_ex / 2, f'+{n_u_ex}',
-          ha='center', va='center', fontsize=13, color='white', fontweight='bold')
+          ha='center', va='center', fontsize=NUM_FS, color='white', fontweight='bold')
 ax_c.text(x_pos[2], n_u_total + 1.2, str(n_u_total),
-          ha='center', va='bottom', fontsize=12, fontweight='bold', color=C_5U_EX)
+          ha='center', va='bottom', fontsize=NUM_FS, fontweight='bold', color=C_5U_EX)
 
 ax_c.plot([x_pos[1] + width / 2 + 0.04, x_pos[2] - width / 2 - 0.04],
           [n_shared, n_shared],
@@ -349,7 +398,7 @@ a1_y = n_c_total + 11
 a2_y = n_u_total + 11
 
 ax_c.set_xticks(x_pos)
-ax_c.set_xticklabels(['CADD\nablated', 'CADD\nbaseline', '5ULTRA'], fontsize=8.2)
+ax_c.set_xticklabels(['CADD (5ULTRA\nvariants\nremoved)', 'CADD\nbaseline', '5ULTRA'], fontsize=8.2)
 ax_c.set_ylabel('Significant gene–phenotype associations',
                 fontsize=12, fontweight='bold', linespacing=1.3)
 ax_c.set_ylim(0, y_max)
@@ -368,7 +417,12 @@ ax_c.text(-0.36, 1.02, 'c', transform=ax_c.transAxes,
           fontsize=13, fontweight='bold', va='top')
 
 # ── SAVE ─────────────────────────────────────────────────────────────────────
+suffix = '' if SCHEME == 'exact' else f'_{SCHEME}'   # exact is the canonical scheme
 for fmt in ('png', 'pdf'):
-    out = f'Figure2_Publication_corrected.{fmt}'
+    out = f'Figure2_Publication_corrected{suffix}.{fmt}'
     plt.savefig(out, bbox_inches='tight', dpi=300 if fmt == 'png' else None)
     print(f'Saved: {out}')
+
+print(f"\nCounts under '{SCHEME}': 5ULTRA={n_u_total}  CADD={n_c_total}  "
+      f"shared={n_shared}  5ULTRA-only={n_u_ex}  CADD-only={n_c_ex}  "
+      f"ablated={n_abl}  ratio={ratio:.2f}x")

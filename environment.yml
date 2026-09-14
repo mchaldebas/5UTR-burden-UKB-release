@@ -2,7 +2,6 @@ name: 5utr_burden
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - python=3.10
   - numpy>=1.24

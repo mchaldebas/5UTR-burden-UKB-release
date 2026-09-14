@@ -3,16 +3,16 @@
 --------------------------------------
 Generates two supplementary tables for the Nature 2025 comparison section.
 
-Table S_Nature  — All 42 Nature 2025 significant 5'UTR associations with
-                  5ULTRA replication status and diagnosis. Replication is
+Table S6        — All 42 Nature 2025 significant 5'UTR associations with
+                  5ULTRA detection status and diagnosis. Detection is
                   classified LIVE from Master_Results_Clean.csv.gz using the
                   same concordant Bonferroni/nominal scheme as Results §2 and
                   01_nature2025_overlap.py (n.b. counts are computed, not baked).
-Table S_Novel   — Novel 5ULTRA gene-phenotype associations absent from the
+Table S7        — Novel 5ULTRA gene-phenotype associations absent from the
                   Consortium's catalog, plus high-gain genes (counts printed
                   at run time; titles set dynamically).
 
-Output: Supp_Tables_Nature2025.xlsx
+Output: Supp_Tables_S6_S7.xlsx
 """
 
 import os
@@ -25,17 +25,16 @@ from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
 from openpyxl.utils import get_column_letter
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-DATA_DIR     = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
-MASTER_CSV   = DATA_DIR / 'Master_Results_Clean.csv.gz'
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from analysis_config import (DATA_DIR, MASTER_CSV, TRUE_K_MIN,
+                             THRESH_U as GWS_ME, MODELS_5ULTRA, MODELS_CADD,
+                             N_TESTS_5ULTRA, describe)
+
 NATURE_FILE  = DATA_DIR / 'Nature_2025_Reproduction_Data.csv'
-TRUE_K_MIN   = 5.0
-N_MODELS     = 8
-GWS_ME       = 6.0 + np.log10(N_MODELS)   # 6.903
 GWS_NAT      = 8.0
 K_SUSPICIOUS = 1000
-
-MODELS_5ULTRA = {'5U_Logic', '5ULTRA_Binary', '5ULTRA_Weighted', 'Flux_Joint'}
-MODELS_CADD   = {'CADD_Binary', 'CADD_Weighted'}
+print(describe())
 
 PHENO_LABELS = {
     30000:'WBC count',
@@ -63,11 +62,19 @@ PHENO_LABELS = {
 }
 known_phenos = set(PHENO_LABELS.keys())
 
-MODEL_LABEL = {
-    '5U_Logic':        'Directional',   # manuscript term for the Mirror UP/DN model
-    '5ULTRA_Binary':   '5ULTRA_Binary',
-    '5ULTRA_Weighted': '5ULTRA_Weighted',
-    'Flux_Joint':      'Flux_Joint',
+# Burden model in the manuscript's vocabulary (Materials and Methods, "Burden
+# test design"). Keyed on the MASK, not the model, so the directional model
+# resolves to its UP or DN arm rather than collapsing to one label.
+# KEEP IN SYNC with MODEL_LABELS in 03_generate_supp_tables_S3_S4.py so every
+# supplementary table names the models identically.
+MODEL_LABELS = {
+    'Mirror_DN':   '5ULTRA DN',
+    'Mirror_UP':   '5ULTRA UP',
+    '5U_Binary':   '5ULTRA High-confidence',
+    '5U_Weighted': '5ULTRA All',
+    'Flux_Joint':  '5ULTRA Joint (ACAT)',
+    'CD_Binary':   'CADD High-confidence',
+    'CD_Weighted': 'CADD All',
 }
 
 # ── LOAD DATA ─────────────────────────────────────────────────────────────────
@@ -132,15 +139,15 @@ def classify(row):
     if not bool(row['concordant']):
         return 'Not detected'                 # no 5ULTRA signal, or opposite direction
     if row['logP_me'] > REPL_BONF:
-        return 'Replicated (Bonferroni)'      # primary
+        return 'Detected (Bonferroni)'      # primary
     if row['logP_me'] > REPL_NOMINAL:
-        return 'Replicated (nominal)'         # sensitivity
+        return 'Detected (nominal)'         # sensitivity
     return 'Not detected'
 
 def strength(row):
     # Descriptive sub-label for replicated rows only: 5ULTRA signal strength
     # relative to the consortium value (NOT used to decide replication itself).
-    if not str(row['Status']).startswith('Replicated'):
+    if not str(row['Status']).startswith('Detected'):
         return ''
     lp_me, lp_nat = row['logP_me'], row['logP_consortium']
     if   lp_me >= lp_nat * 1.1: return 'stronger'
@@ -179,7 +186,7 @@ def diagnose_missed(gene):
     return 'No 5ULTRA signal detected'
 
 def diag(r):
-    if str(r['Status']).startswith('Replicated'):
+    if str(r['Status']).startswith('Detected'):
         return ''
     # Not detected: distinguish opposite-direction from no-signal
     if pd.notna(r['beta_me']) and r['logP_me'] > 0 and not bool(r['concordant']):
@@ -189,20 +196,20 @@ def diag(r):
 nat['Notes'] = nat.apply(diag, axis=1)
 
 # ── Replication summary (must match Results §2 / 01_nature2025_overlap.py) ──
-_n_bonf = int((nat['Status'] == 'Replicated (Bonferroni)').sum())
-_n_nom  = int(nat['Status'].isin(['Replicated (Bonferroni)', 'Replicated (nominal)']).sum())
+_n_bonf = int((nat['Status'] == 'Detected (Bonferroni)').sum())
+_n_nom  = int(nat['Status'].isin(['Detected (Bonferroni)', 'Detected (nominal)']).sum())
 _n_nd   = int((nat['Status'] == 'Not detected').sum())
-print(f"\nReplication of {len(nat)} Nature 2025 GWS 5'UTR hits (live, concordant):")
+print(f"\nConcordance with {len(nat)} Nature 2025 GWS 5'UTR hits (direction-concordant):")
 print(f"  Bonferroni (−log₁₀P>{REPL_BONF:.2f}): {_n_bonf}/{len(nat)} ({_n_bonf/len(nat)*100:.0f}%)  [primary]")
 print(f"  Nominal    (−log₁₀P>{REPL_NOMINAL:.2f}): {_n_nom}/{len(nat)} ({_n_nom/len(nat)*100:.0f}%)  [sensitivity]")
 print(f"  Not detected: {_n_nd}/{len(nat)}")
 print(f"  Strength of replicated (Bonf+nominal): "
-      f"{nat[nat['Status'].str.startswith('Replicated')]['Strength'].value_counts().to_dict()}")
+      f"{nat[nat['Status'].str.startswith('Detected')]['Strength'].value_counts().to_dict()}")
 
 # Sort: Bonferroni-replicated first (by 5ULTRA logP desc), then nominal, then not detected
 status_order = {
-    'Replicated (Bonferroni)': 0,
-    'Replicated (nominal)':    1,
+    'Detected (Bonferroni)': 0,
+    'Detected (nominal)':    1,
     'Not detected':            2,
 }
 nat['_order'] = nat['Status'].map(status_order)
@@ -259,8 +266,8 @@ def make_cell_style(bold=False, color=None, center=False):
     }
 
 STATUS_COLORS = {
-    'Replicated (Bonferroni)': 'D6E4F0',
-    'Replicated (nominal)':    'EBF5FB',
+    'Detected (Bonferroni)': 'D6E4F0',
+    'Detected (nominal)':    'EBF5FB',
     'Not detected':            'FDFEFE',
 }
 
@@ -278,13 +285,13 @@ wb = Workbook()
 
 # ── SHEET 1: Replication table ────────────────────────────────────────────────
 ws1 = wb.active
-ws1.title = 'S_Nature_Replication'
+ws1.title = 'S6_Nature_Concordance'
 ws1.freeze_panes = 'A3'
 
 # Title row
 ws1.merge_cells('A1:I1')
 title_cell = ws1['A1']
-title_cell.value = ('Supplementary Table S1. 5ULTRA replication of Nature 2025 '
+title_cell.value = ('Supplementary Table S6. 5ULTRA concordance with Nature 2025 '
                     'significant 5\'UTR PheWAS associations (−log₁₀P ≥ 8.0, n = 42)')
 title_cell.font      = Font(name='Arial', bold=True, size=10)
 title_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
@@ -335,25 +342,25 @@ for offset, (status, color) in enumerate(STATUS_COLORS.items(), start=1):
     c.font = Font(name='Arial', size=8)
     c.fill = PatternFill('solid', fgColor=color)
 ws1.cell(row=legend_row + len(STATUS_COLORS) + 1, column=1,
-         value=(f'Replication (fair comparison, no minimum-carrier filter; direction-concordant): '
+         value=(f'Concordance (fair comparison, no minimum-carrier filter; direction-concordant): '
                 f'Bonferroni −log₁₀P > {REPL_BONF:.2f} (0.05/{len(nat)}) primary; '
                 f'nominal −log₁₀P > {REPL_NOMINAL:.2f} (P < 0.05) sensitivity. '
                 f'"Relative strength" compares the 5ULTRA −log₁₀P to the consortium value '
                 f'(stronger ≥1.1×, comparable 0.8–1.1×, weaker <0.8×); it is descriptive only '
-                f'and does not affect replication status. "Direction" gives the sign of the '
+                f'and does not affect detection status. "Direction" gives the sign of the '
                 f'burden effect for the Consortium and for 5ULTRA (↑ positive, ↓ negative, – no '
-                f'signal); replication requires concordant direction. "CADD −log₁₀P" is the best '
+                f'signal); detection requires concordant direction. "CADD −log₁₀P" is the best '
                 f'CADD burden result for the same gene-phenotype (same no-carrier-filter basis; '
                 f'n/t = not tested by CADD), shown for comparison.')).font = Font(name='Arial', italic=True, size=8)
 
 # ── SHEET 2: Novel + High-gain ────────────────────────────────────────────────
-ws2 = wb.create_sheet('S_Novel_Genes')
+ws2 = wb.create_sheet('S7_Novel_Genes')
 ws2.freeze_panes = 'A3'
 
 # Title
 ws2.merge_cells('A1:G1')
 t2 = ws2['A1']
-t2.value = (f'Supplementary Table S2. Novel 5ULTRA gene-phenotype associations '
+t2.value = (f'Supplementary Table S7. Novel 5ULTRA gene-phenotype associations '
             f'absent from the Nature 2025 Consortium catalog (n = {len(novel_clean)}), '
             f'and genes with substantially higher 5ULTRA power (n = {len(high_gain)})')
 t2.font      = Font(name='Arial', bold=True, size=10)
@@ -362,7 +369,7 @@ ws2.row_dimensions[1].height = 36
 
 # Header
 headers_s2 = ['Gene', 'Phenotype', '5ULTRA\n−log₁₀P',
-               'Effect size\n(β, SD units)', 'Carrier count\n(k)',
+               'Effect size\n(β, SD units)', 'Weighted burden\nsum (k)',
                'Best model', 'Category']
 ws2.row_dimensions[2].height = 32
 for col, h in enumerate(headers_s2, start=1):
@@ -390,7 +397,7 @@ for i, row in novel_clean.iterrows():
     write_row(ws2, r,
         [row['gene'], row['pheno_label'],
          round(row['logp'], 1), round(row['beta'], 3),
-         int(round(row['true_k'])), MODEL_LABEL.get(row['model'], row['model']),
+         round(float(row['true_k']), 1), MODEL_LABELS.get(row['mask'], row['mask']),
          'Novel'],
         [cs_b, cs, cs_c, cs_c, cs_c, cs, cs_c])
     ws2.row_dimensions[r].height = 16
@@ -415,7 +422,7 @@ for r_off, row in high_gain.iterrows():
     write_row(ws2, r,
         [row['gene'], row['pheno_label'],
          round(row['logp'], 1), nat_best_str,
-         int(round(row['true_k'])), MODEL_LABEL.get(row['model'], row['model']),
+         round(float(row['true_k']), 1), MODEL_LABELS.get(row['mask'], row['mask']),
          'Higher power'],
         [cs_b, cs, cs_c, cs_c, cs_c, cs, cs_c])
     ws2.row_dimensions[r].height = 16
@@ -427,7 +434,7 @@ ws2.cell(row=note_row, column=1,
 ws2.merge_cells(f'A{note_row}:G{note_row}')
 
 ws2.cell(row=note_row + 1, column=1,
-         value=f'5ULTRA GWS threshold: −log₁₀P > {GWS_ME:.2f} (Bonferroni-corrected for best of {N_MODELS} model×spectrum combinations); carrier count k ≥ {TRUE_K_MIN}.').font = Font(name='Arial', italic=True, size=8)
+         value=f'5ULTRA GWS threshold: −log₁₀P > {GWS_ME:.3f} (Bonferroni correction for the {N_TESTS_5ULTRA:,} association tests performed in the 5ULTRA suite at k ≥ {TRUE_K_MIN:.0f}: 0.05/{N_TESTS_5ULTRA:,}). k is the aggregate weighted allele count for the best model × spectrum (the sum of weighted allele dosages across all individuals, REGENIE --build-mask sum), not a raw carrier count; pairs with k < {TRUE_K_MIN:.0f} were excluded.').font = Font(name='Arial', italic=True, size=8)
 ws2.merge_cells(f'A{note_row+1}:G{note_row+1}')
 
 # Column widths
@@ -435,7 +442,7 @@ for col_idx, width in enumerate([10, 22, 13, 14, 14, 18, 14], start=1):
     ws2.column_dimensions[get_column_letter(col_idx)].width = width
 
 # ── SAVE ─────────────────────────────────────────────────────────────────────
-out = 'Supp_Tables_Nature2025.xlsx'
+out = 'Supp_Tables_S6_S7.xlsx'
 wb.save(out)
 print(f'Saved: {out}')
 print(f'  Sheet 1: {len(nat_sorted)} rows (42 Nature 2025 associations)')

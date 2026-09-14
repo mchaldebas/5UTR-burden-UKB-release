@@ -1,28 +1,32 @@
 """
 07_cross_ancestry_replication.py
 --------------------------------
-Replication of the NFE-discovered 5ULTRA hits in the non-NFE ancestry cohorts.
+Cross-ancestry generalization of the NFE-discovered 5ULTRA hits.
+
+Note on wording: these are ancestry groups within the SAME UK Biobank dataset,
+not independent cohorts, so this is a test of generalization / concordance and
+is deliberately NOT described as replication.
 
 Discovery set (NFE):
     models  = {5U_Logic, 5ULTRA_Binary, 5ULTRA_Weighted, Flux_Joint}
     filter  = true_k >= 5
     best model per (gene, pheno) by logp
-    GWS     = logp > 6.0 + log10(8) = 6.903   (model-selection corrected)
+    GWS     = logp > 7.016 (0.05 / 518,380 tests; see analysis_config.py)
 
 For every discovery hit we pull the SAME (gene, pheno, model, spectrum) row from
-each replication cohort and evaluate three replication rules, so the criterion
+each ancestry group and evaluate three concordance rules, so the criterion
 can be chosen post-hoc from the printed summary:
 
     sign        : effect direction concordant with NFE
     nominal     : concordant AND p_rep < 0.05
     bonferroni  : concordant AND p_rep < 0.05 / n_hits
 
-Replication cohorts: afr, sas, eas, oth (each separately) + nonnfe (pooled).
+Ancestry groups: afr, sas, eas, oth (each separately) + nonnfe (pooled).
 
 Outputs (written next to this script):
-    cross_ancestry_replication_perhit.csv   one row per (hit x cohort)
-    cross_ancestry_replication_summary.csv  replication rates per cohort x rule
-    cross_ancestry_replication.png/.pdf     status heatmap + summary bars
+    cross_ancestry_generalization_perhit.csv   one row per (hit x ancestry group)
+    cross_ancestry_generalization_summary.csv  concordance rates per group x rule
+    Figure_CrossAncestry_Generalization.png/.pdf
 """
 
 import os
@@ -62,13 +66,13 @@ matplotlib.rcParams.update({
 })
 
 # ── Config ──────────────────────────────────────────────────────────────────
-DATA_DIR = Path(os.environ.get("DATA_DIR", "/Volumes/Dropbox Chaldeb/UKB-burden"))
-OUT_DIR = Path(__file__).resolve().parent
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from analysis_config import (DATA_DIR, TRUE_K_MIN, MODELS_5ULTRA as MODELS_5U,
+                             THRESH_U as GWS, describe)
 
-MODELS_5U = {"5U_Logic", "5ULTRA_Binary", "5ULTRA_Weighted", "Flux_Joint"}
-TRUE_K_MIN = 5.0
-N_MODELS = 8  # 4 models x 2 spectra
-GWS = 6.0 + np.log10(N_MODELS)  # 6.903
+OUT_DIR = Path(__file__).resolve().parent
+print(describe())
 
 REP_COHORTS = ["afr", "sas", "eas", "oth", "nonnfe"]
 ANCESTRY_COHORTS = ["afr", "sas", "eas", "oth"]  # distinct ancestries (exclude pooled)
@@ -112,7 +116,7 @@ disc = hits[["gene", "pheno", "model", "mask", "spectrum", "logp", "beta", "se",
 )
 BONF_P = 0.05 / max(n_hits, 1)
 
-# ── Evaluate replication in each cohort ─────────────────────────────────────
+# ── Evaluate concordance in each ancestry group ─────────────────────────────
 records = []
 for cohort in REP_COHORTS:
     fp = master_path(cohort)
@@ -161,7 +165,7 @@ perhit_cols = [
     "tested", "concordant", "rep_sign", "rep_nominal", "rep_bonf",
 ]
 perhit = perhit[perhit_cols]
-perhit_out = OUT_DIR / "cross_ancestry_replication_perhit.csv"
+perhit_out = OUT_DIR / "cross_ancestry_generalization_perhit.csv"
 perhit.to_csv(perhit_out, index=False)
 
 # ── Per-cohort summary ──────────────────────────────────────────────────────
@@ -179,13 +183,13 @@ for cohort in REP_COHORTS:
                 "rule": rule,
                 "n_hits": n_hits,
                 "n_tested": n_tested,
-                "n_replicated": n_rep,
+                "n_generalizing": n_rep,
                 "rate_of_tested": n_rep / n_tested if n_tested else np.nan,
                 "rate_of_all": n_rep / n_hits if n_hits else np.nan,
             }
         )
 
-# "replicated in >=1 ancestry cohort" (afr/sas/eas/oth, pooled nonnfe excluded)
+# "concordant in >=1 ancestry group" (afr/sas/eas/oth, pooled nonnfe excluded)
 anc = perhit[perhit["cohort"].isin(ANCESTRY_COHORTS)]
 for rule, col in [("sign", "rep_sign"), ("nominal", "rep_nominal"), ("bonferroni", "rep_bonf")]:
     any_rep = anc.groupby(["gene", "pheno"])[col].any()
@@ -196,17 +200,17 @@ for rule, col in [("sign", "rep_sign"), ("nominal", "rep_nominal"), ("bonferroni
             "rule": rule,
             "n_hits": n_hits,
             "n_tested": int(tested_any.sum()),
-            "n_replicated": int(any_rep.sum()),
+            "n_generalizing": int(any_rep.sum()),
             "rate_of_tested": any_rep.sum() / tested_any.sum() if tested_any.sum() else np.nan,
             "rate_of_all": any_rep.sum() / n_hits if n_hits else np.nan,
         }
     )
 
 summary = pd.DataFrame(rows)
-summary_out = OUT_DIR / "cross_ancestry_replication_summary.csv"
+summary_out = OUT_DIR / "cross_ancestry_generalization_summary.csv"
 summary.to_csv(summary_out, index=False)
 
-print("\n=== Replication summary (Bonferroni p < {:.2e}) ===".format(BONF_P))
+print("\n=== Cross-ancestry generalization summary (Bonferroni p < {:.2e}) ===".format(BONF_P))
 with pd.option_context("display.width", 200, "display.max_rows", None):
     print(
         summary.assign(
@@ -256,7 +260,7 @@ p_str = (f"P = {p_pear:.1e}" if np.isfinite(p_pear) and p_pear < 1e-3
          else f"P = {p_pear:.3f}" if np.isfinite(p_pear) else "P = n/a")
 ax_a.set_xlim(-lim, lim); ax_a.set_ylim(-lim, lim)
 ax_a.set_xlabel(r"Discovery (NFE)  $Z$", fontsize=9, fontweight="bold")
-ax_a.set_ylabel(r"Replication (non-NFE)  $Z$", fontsize=9, fontweight="bold")
+ax_a.set_ylabel(r"Non-European ancestry groups  $Z$", fontsize=9, fontweight="bold")
 ax_a.set_title("Effect concordance, pooled non-European", fontsize=8.5)
 ax_a.text(0.04, 0.97,
           f"{100*conc.mean():.0f}% directional\nr = {r_pear:.2f}, {p_str}  (n = {len(zx)})",
@@ -267,10 +271,16 @@ ax_a.spines[["top", "right"]].set_visible(False)
 ax_a.text(-0.15, 1.07, "a", transform=ax_a.transAxes, fontsize=13,
           fontweight="bold", va="top")
 
-# ── Panel b: replication rate by cohort and rule ─────────────────────────────
+# ── Panel b: concordance rate by ancestry group and rule ────────────────────
 RULES = ["sign", "nominal", "bonferroni"]
 RULE_LABEL = {"sign": "concordant sign", "nominal": "+ nominal P<0.05", "bonferroni": "+ Bonferroni"}
 RULE_ALPHA = {"sign": 0.42, "nominal": 0.70, "bonferroni": 1.0}
+# Panel b shows AFR, the pooled non-European group, and the any-ancestry
+# summary — matching the figure legend. SAS and EAS are omitted because no
+# discovery hit was testable in them at true_k >= 5 (n_tested = 0), so a bar
+# would carry no information; both remain in
+# cross_ancestry_generalization_summary.csv so nothing is hidden. OTH is
+# subsumed by the pooled non-European group.
 order = ["afr", "nonnfe", "any_ancestry(>=1)"]
 yb = np.arange(len(order))[::-1]
 hh = 0.26
@@ -286,8 +296,8 @@ for i, coh in enumerate(order):
     ax_b.text(101, yb[i], f"n={nt}", va="center", ha="left", fontsize=6.5, color="#777777")
 ax_b.set_yticks(yb)
 ax_b.set_yticklabels([COH_LABEL[c] for c in order], fontsize=7.8)
-ax_b.set_xlim(0, 100); ax_b.set_xlabel("Replication rate, % of tested", fontsize=9, fontweight="bold")
-ax_b.set_title("Replication by cohort and stringency", fontsize=8.5)
+ax_b.set_xlim(0, 100); ax_b.set_xlabel("Concordance rate, % of testable", fontsize=9, fontweight="bold")
+ax_b.set_title("Generalization by ancestry group and stringency", fontsize=8.5)
 ax_b.spines[["top", "right"]].set_visible(False)
 ax_b.tick_params(axis="y", length=0)
 rule_handles = [Patch(facecolor="#555555", alpha=RULE_ALPHA[r], label=RULE_LABEL[r]) for r in RULES]
@@ -297,7 +307,7 @@ ax_b.text(-0.18, 1.07, "b", transform=ax_b.transAxes, fontsize=13,
           fontweight="bold", va="top")
 
 for fmt in ("png", "pdf"):
-    out = OUT_DIR / f"Figure_CrossAncestry_Replication.{fmt}"
+    out = OUT_DIR / f"Figure_CrossAncestry_Generalization.{fmt}"
     fig.savefig(out, bbox_inches="tight", dpi=300 if fmt == "png" else None)
     print(f"Saved: {out}")
 print(f"\nWrote CSVs:\n  {perhit_out}\n  {summary_out}")

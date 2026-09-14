@@ -27,16 +27,16 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib import gridspec
 
-DATA_DIR = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from analysis_config import (DATA_DIR, MASTER_CSV, TRUE_K_MIN,
+                             THRESH_U as GWS_ME, describe)
 
 # ── CONFIGURATION ─────────────────────────────────────────────────────────────
 NATURE_FILE  = DATA_DIR / "Nature_2025_Reproduction_Data.csv"
-MASTER_CSV   = DATA_DIR / "Master_Results_Clean.csv.gz"
 PHENO_FILE   = DATA_DIR / "pheno_covar_final_clean_all.txt"
-TRUE_K_MIN   = 5.0
-N_MODELS_5ULTRA = 8    # 4 models × 2 spectra
-GWS_ME       = 6.0 + np.log10(N_MODELS_5ULTRA)   # 6.903 — model-selection corrected
 GWS_NAT      = 8.0
+print(describe())
 K_SUSPICIOUS = 1000
 
 PHENO_LABELS = {
@@ -142,7 +142,7 @@ print(f"  Total rows in CSV: {len(nat_all)}  |  Significant (≥{GWS_NAT}): {len
 # the number of Nature genome-wide-significant 5'UTR hits being tested.
 REPL_NOMINAL = -np.log10(0.05)               # 1.301
 REPL_BONF    = -np.log10(0.05 / len(nat))    # ≈2.92 for 42 hits
-print(f"  Replication thresholds: nominal −log10P>{REPL_NOMINAL:.2f}, "
+print(f"  Concordance thresholds: nominal −log10P>{REPL_NOMINAL:.2f}, "
       f"Bonferroni(0.05/{len(nat)}) −log10P>{REPL_BONF:.2f}")
 
 nat['pheno_label'] = nat['field_id'].map(PHENO_LABELS).fillna(
@@ -153,17 +153,17 @@ def classify_repl(row):
     if not bool(row['concordant']):
         return 'Missed'                       # no 5ULTRA signal, or opposite direction
     if row['logP_me'] > REPL_BONF:
-        return 'Replicated'                   # Bonferroni — primary
+        return 'Detected'                   # Bonferroni — primary
     if row['logP_me'] > REPL_NOMINAL:
-        return 'Replicated (nominal only)'    # nominal — sensitivity tier
+        return 'Detected (nominal only)'    # nominal — sensitivity tier
     return 'Missed'
 
 nat['Class3'] = nat.apply(classify_repl, axis=1)
 
-n_rep_bonf = int((nat['Class3'] == 'Replicated').sum())
-n_rep_nom  = int(nat['Class3'].isin(['Replicated', 'Replicated (nominal only)']).sum())
+n_rep_bonf = int((nat['Class3'] == 'Detected').sum())
+n_rep_nom  = int(nat['Class3'].isin(['Detected', 'Detected (nominal only)']).sum())
 n_concord  = int(nat['concordant'].sum())
-print(f"\n--- Replication of {len(nat)} Nature 2025 GWS 5'UTR hits "
+print(f"\n--- Concordance with {len(nat)} Nature 2025 GWS 5'UTR hits "
       f"(filters matched to Nature; direction-concordant) ---")
 print(f"  Bonferroni (−log10P>{REPL_BONF:.2f}) : {n_rep_bonf}/{len(nat)} "
       f"({n_rep_bonf/len(nat)*100:.0f}%)   [primary]")
@@ -173,7 +173,7 @@ print(f"  Direction concordance overall     : {n_concord}/{len(nat)}")
 
 # ── 4. DIAGNOSE NON-REPLICATED HITS ───────────────────────────────────────────
 missed = nat[nat['Class3'] == 'Missed'].copy()
-print(f"\n--- Diagnosis of {len(missed)} non-replicated Nature 2025 hits ---")
+print(f"\n--- Diagnosis of {len(missed)} non-detected Nature 2025 hits ---")
 miss_reasons = {}
 for _, r in missed.sort_values('logP_consortium', ascending=False).iterrows():
     gene = r['gene']
@@ -268,8 +268,8 @@ print("\nSaved: nature2025_comparison_table.tsv, novel_hits.tsv, highgain_hits.t
 
 # ── 8. FIGURE ─────────────────────────────────────────────────────────────────
 C3_PAL = {
-    'Replicated':               '#1A5276',   # Bonferroni, concordant
-    'Replicated (nominal only)':'#85C1E9',   # nominal sensitivity tier
+    'Detected':               '#1A5276',   # Bonferroni, concordant
+    'Detected (nominal only)':'#85C1E9',   # nominal sensitivity tier
     'Missed':                   '#BDC3C7',   # no signal or opposite direction
 }
 
@@ -292,7 +292,7 @@ ax1.axhline(REPL_BONF,    color='gray', linestyle=':',  alpha=0.5)
 ax1.axhline(REPL_NOMINAL, color='gray', linestyle='--', alpha=0.3)
 ax1.axvline(GWS_NAT,      color='gray', linestyle=':',  alpha=0.4)
 
-for _, r in nat[nat['Class3'].str.startswith('Replicated')].iterrows():
+for _, r in nat[nat['Class3'].str.startswith('Detected')].iterrows():
     ax1.annotate(r['gene'],
                  xy=(r['logP_consortium'], r['logP_me']),
                  xytext=(4, 2), textcoords='offset points',
@@ -309,7 +309,7 @@ ax1.set_xlabel(r"Nature 2025 5′UTR Signal ($-\log_{10}P$)", fontsize=13, fontw
 ax1.set_ylabel(r"5ULTRA Signal ($-\log_{10}P$)", fontsize=13, fontweight='bold')
 ax1.set_title(f"A: 5ULTRA vs Nature 2025 Significant 5′UTR Associations\n"
               f"(n={len(nat)}, Nature logP≥{GWS_NAT}; filters matched to Nature, "
-              f"direction-concordant; {n_rep_bonf}/{len(nat)} replicate at Bonferroni, "
+              f"direction-concordant; {n_rep_bonf}/{len(nat)} detected at Bonferroni, "
               f"{n_rep_nom}/{len(nat)} at nominal)",
               fontweight='bold', loc='left', fontsize=12)
 ax1.legend(frameon=False, fontsize=9, loc='upper left')
@@ -371,17 +371,17 @@ n_miss = int((nat['Class3'] == 'Missed').sum())
 
 print(f"""
 ======================================================
-MANUSCRIPT SUMMARY — Nature 2025 replication
+MANUSCRIPT SUMMARY — Nature 2025 concordance
 ======================================================
 Nature 2025 GWS 5'UTR associations (logP≥{GWS_NAT}): {len(nat)}
 Filters matched to Nature (no k≥5 floor); direction-concordant.
 
-Replication (Bonferroni 0.05/{len(nat)}, −log10P>{REPL_BONF:.2f}):  {n_rep_bonf}/{len(nat)} ({n_rep_bonf/len(nat)*100:.0f}%)  [primary]
-Replication (nominal P<0.05, −log10P>{REPL_NOMINAL:.2f}):          {n_rep_nom}/{len(nat)} ({n_rep_nom/len(nat)*100:.0f}%)  [sensitivity]
+Concordance (Bonferroni 0.05/{len(nat)}, −log10P>{REPL_BONF:.2f}):  {n_rep_bonf}/{len(nat)} ({n_rep_bonf/len(nat)*100:.0f}%)  [primary]
+Concordance (nominal P<0.05, −log10P>{REPL_NOMINAL:.2f}):          {n_rep_nom}/{len(nat)} ({n_rep_nom/len(nat)*100:.0f}%)  [sensitivity]
 Direction concordance overall:                          {n_concord}/{len(nat)}
-Not replicated:                                         {n_miss}/{len(nat)} ({n_miss/len(nat)*100:.0f}%)
+Not detected:                                         {n_miss}/{len(nat)} ({n_miss/len(nat)*100:.0f}%)
 
-Non-replication breakdown (per gene-phenotype pair, sums to {n_miss}):
+Non-detection breakdown (per gene-phenotype pair, sums to {n_miss}):
   No 5ULTRA test at phenotype:  {int((missed['beta_me'].isna() | (missed['logP_me'] == 0)).sum())}
   Opposite direction:           {int(((~missed['concordant']) & ~(missed['beta_me'].isna() | (missed['logP_me'] == 0))).sum())}
   Concordant but no signal:     {int((missed['concordant'] & (missed['logP_me'] <= REPL_NOMINAL)).sum())}
@@ -389,10 +389,10 @@ Non-replication breakdown (per gene-phenotype pair, sums to {n_miss}):
 Novel genes (absent from Nature 2025, clean): {len(novel_clean)}
 High-gain hits (clean):                        {len(clean_hg)}
 
-Top replicated hits (B=Bonferroni, n=nominal-only):""")
-rep_sorted = nat[nat['Class3'].str.startswith('Replicated')]\
+Top concordant hits (B=Bonferroni, n=nominal-only):""")
+rep_sorted = nat[nat['Class3'].str.startswith('Detected')]\
     .sort_values('logP_me', ascending=False)
 for _, r in rep_sorted.iterrows():
-    tier = 'B' if r['Class3'] == 'Replicated' else 'n'
+    tier = 'B' if r['Class3'] == 'Detected' else 'n'
     print(f"  [{tier}] {r['gene']:12s}  {r['pheno_label']:25s}  "
           f"Nat={r['logP_consortium']:.1f}  Us={r['logP_me']:.1f}")

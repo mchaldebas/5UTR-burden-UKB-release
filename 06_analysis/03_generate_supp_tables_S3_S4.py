@@ -1,15 +1,14 @@
 """
 Generate Supplementary Tables S3 and S4.
 
-S3 — All 58 GWS 5ULTRA gene-phenotype associations
-S4 — All 37 GWS CADD gene-phenotype associations
+S3 - All 58 GWS 5ULTRA gene-phenotype associations
+S4 - All 38 GWS CADD gene-phenotype associations
 
 Added as new sheets to a new Excel workbook:
   Supp_Tables_S3_S4.xlsx
 
-Thresholds (Bonferroni-corrected for model selection):
-  THRESH_U = 6.0 + log10(8) = 6.903   (4 models × 2 spectra)
-  THRESH_C = 6.0 + log10(4) = 6.602   (2 models × 2 spectra)
+Thresholds: Bonferroni over the exact number of tests performed per suite,
+imported from analysis_config.py (THRESH_U = 7.016, THRESH_C = 6.331).
 
 k filter applied BEFORE deduplication to avoid the order-of-operations bug.
 """
@@ -25,20 +24,22 @@ from openpyxl.styles import (
 from openpyxl.utils import get_column_letter
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-DATA_DIR     = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
-MASTER_CSV   = DATA_DIR / 'Master_Results_Clean.csv.gz'
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from analysis_config import (DATA_DIR, MASTER_CSV, TRUE_K_MIN,
+                             THRESH_U, THRESH_C, MODELS_5ULTRA, MODELS_CADD,
+                             N_TESTS_5ULTRA, N_TESTS_CADD,
+                             verify_test_counts, describe)
+
 OUT_XLSX     = 'Supp_Tables_S3_S4.xlsx'
-TRUE_K_MIN   = 5
-THRESH_U     = 6.0 + np.log10(8)   # 6.903
-THRESH_C     = 6.0 + np.log10(4)   # 6.602
+MODELS_5U = MODELS_5ULTRA
+MODELS_CA = MODELS_CADD
+print(describe())
 
-MODELS_5U = {'5U_Logic', '5ULTRA_Binary', '5ULTRA_Weighted', 'Flux_Joint'}
-MODELS_CA = {'CADD_Binary', 'CADD_Weighted'}
-
-# Models whose burden uses binary (weight=1) weights, so k is a TRUE physical
-# carrier count. All other models (Weighted, Logic/Mirror, Flux) report a
-# W_PHRED-weighted burden SUM — not a carrier count. See the 'k type' column.
-PHYSICAL_MODELS = {'5ULTRA_Binary', 'CADD_Binary', 'Binary_DN'}
+# Every model reported in S3/S4 builds its burden as a weighted sum of allele
+# dosages (REGENIE --build-mask sum --weights-col 4), so k is a weighted burden
+# sum throughout and needs no per-row qualifier. The unweighted Binary-DN model
+# used for the exome-PTV comparison (Table S2) is not part of either suite here.
 
 PHENO_LABELS = {
     30000:'WBC count',
@@ -64,33 +65,29 @@ PHENO_LABELS = {
     30870:'Triglycerides',      30880:'Urate',               30890:'Vitamin D',
 }
 
-HAEM_PHENOS = {30000} | set(range(30010, 30310, 10))   # haematology codes (incl. WBC 30000)
+HEM_PHENOS = {30000} | set(range(30010, 30310, 10))   # hematology codes (incl. WBC 30000)
 
+# The mask identifies the burden model in the manuscript's vocabulary
+# (Materials and Methods, "Burden test design"). Keep these strings identical to
+# the model names used there, so a reader can map a row straight onto the text.
 MODEL_LABELS = {
-    '5U_Logic':        'Directional',   # manuscript term for the Mirror UP/DN model
-    '5ULTRA_Binary':   'Binary',
-    '5ULTRA_Weighted': 'Weighted',
-    'Flux_Joint':      'Flux Joint',
-    'CADD_Binary':     'Binary',
-    'CADD_Weighted':   'Weighted',
+    'Mirror_DN':   '5ULTRA DN',
+    'Mirror_UP':   '5ULTRA UP',
+    '5U_Binary':   '5ULTRA High-confidence',
+    '5U_Weighted': '5ULTRA All',
+    'Flux_Joint':  '5ULTRA Joint (ACAT)',
+    'CD_Binary':   'CADD High-confidence',
+    'CD_Weighted': 'CADD All',
 }
 
-MASK_LABELS = {
-    'Mirror_DN':   "5'UTR-DN",
-    'Mirror_UP':   "5'UTR-UP",
-    '5U_Binary':   'Binary',
-    '5U_Weighted': 'Weighted',
-    'Flux_Joint':  'Flux Joint',
-    'CD_Binary':   'Binary',
-    'CD_Weighted': 'Weighted',
-}
-
-SPEC_LABELS  = {'rare': 'AF < 1%', 'af5': 'AF < 5%'}
+# Frequency spectra as defined in 02_annotation/01_generate_anno_masks.py
+# (freq_cut = 0.001 for 'rare', 0.05 for 'af5').
+SPEC_LABELS  = {'rare': 'MAF < 0.1%', 'af5': 'MAF < 5%'}
 
 # ── Colour palette ─────────────────────────────────────────────────────────────
 C_HEADER_U   = 'BDD7EE'   # light blue  – 5ULTRA header
 C_HEADER_C   = 'D9D9D9'   # light grey  – CADD header
-C_ROW_HAEM   = 'EAF4FB'   # very light blue – haematology rows
+C_ROW_HEM    = 'EAF4FB'   # very light blue – hematology rows
 C_ROW_BIOCH  = 'FEF9E7'   # very light yellow – biochemistry rows
 C_ROW_SHARED = 'E8F8E8'   # very light green – shared hits
 C_ROW_WHITE  = 'FFFFFF'
@@ -109,6 +106,7 @@ def row_fill(hex_color):
 # ── Load data ──────────────────────────────────────────────────────────────────
 print("Loading Master_Results_Clean.csv.gz …")
 df = pd.read_csv(MASTER_CSV)
+verify_test_counts(df)
 df_k = df[df['true_k'] >= TRUE_K_MIN].copy()
 
 # 5ULTRA hits
@@ -144,12 +142,10 @@ def build_table(gws_df, shared_keys, is_cadd=False):
             'β (SD units)':  round(float(r['beta']), 3),
             'SE':            round(float(r['se']),   3),
             'k':             round(float(r['true_k']), 1),
-            'k type':        'carriers' if r['model'] in PHYSICAL_MODELS else 'W_PHRED burden',
-            'Model':         MODEL_LABELS.get(r['model'], r['model']),
-            'Mask':          MASK_LABELS.get(r['mask'],  r['mask']),
+            'Model':         MODEL_LABELS.get(r['mask'], r['mask']),
             'Spectrum':      SPEC_LABELS.get(r['spectrum'], r['spectrum']),
             'Shared':        shared,          # internal flag, not written as column
-            'Is_haem':       int(r['pheno']) in HAEM_PHENOS,
+            'Is_hem':        int(r['pheno']) in HEM_PHENOS,
         })
     return rows
 
@@ -157,10 +153,11 @@ u_rows = build_table(u_gws, c_keys, is_cadd=False)
 c_rows = build_table(c_gws, u_keys, is_cadd=True)
 
 # ── Excel writer helper ─────────────────────────────────────────────────────────
-def write_sheet(ws, rows, header_color, cross_col_label, title_text):
+def write_sheet(ws, rows, header_color, cross_col_label, title_text,
+                thresh_val, n_tests):
     COLS = ['Gene','Phenotype','Pheno code','−log₁₀P','β (SD units)',
-            'SE','k','k type','Model','Mask','Spectrum', cross_col_label]
-    COL_WIDTHS = [12, 24, 12, 12, 14, 10, 9, 15, 14, 14, 12, 16]
+            'SE','k','Model','Spectrum', cross_col_label]
+    COL_WIDTHS = [12, 24, 12, 12, 14, 10, 9, 24, 14, 16]
 
     # ── Title row ──
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(COLS))
@@ -171,13 +168,13 @@ def write_sheet(ws, rows, header_color, cross_col_label, title_text):
     ws.row_dimensions[1].height = 28
 
     # ── Threshold note ──
-    thresh_val = THRESH_U if 'ULTRA' in title_text else THRESH_C
+    # thresh_val is passed in explicitly: inferring it from title_text was wrong,
+    # because the CADD sheet's title also contains the string "5ULTRA".
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(COLS))
     note_cell = ws.cell(row=2, column=1,
         value=f'Genome-wide significance threshold: −log₁₀P > {thresh_val:.3f} '
-              f'(Bonferroni-corrected for model selection). '
-              f'k filter: true_k ≥ {TRUE_K_MIN} (k is a physical carrier count only for '
-              f'Binary masks; a W_PHRED-weighted burden sum otherwise — see "k type"). '
+              f'(Bonferroni correction for the {n_tests:,} association tests '
+              f'performed in this suite at k ≥ {TRUE_K_MIN}: 0.05/{n_tests:,}). '
               f'Best-performing model × spectrum per gene-phenotype pair shown.')
     note_cell.font      = Font(name='Calibri', italic=True, size=9, color='595959')
     note_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
@@ -195,13 +192,13 @@ def write_sheet(ws, rows, header_color, cross_col_label, title_text):
 
     # ── Data rows ──
     for ri, row in enumerate(rows, start=4):
-        shared  = row['Shared']
-        is_haem = row['Is_haem']
+        shared = row['Shared']
+        is_hem = row['Is_hem']
 
         if shared:
             fill = row_fill(C_ROW_SHARED)
-        elif is_haem:
-            fill = row_fill(C_ROW_HAEM)
+        elif is_hem:
+            fill = row_fill(C_ROW_HEM)
         else:
             fill = row_fill(C_ROW_BIOCH)
 
@@ -213,9 +210,7 @@ def write_sheet(ws, rows, header_color, cross_col_label, title_text):
             row['β (SD units)'],
             row['SE'],
             row['k'],
-            row['k type'],
             row['Model'],
-            row['Mask'],
             row['Spectrum'],
             'Yes' if shared else 'No',
         ]
@@ -242,11 +237,14 @@ def write_sheet(ws, rows, header_color, cross_col_label, title_text):
 
 # ── Legend helper ──────────────────────────────────────────────────────────────
 def write_legend(ws, is_cadd):
+    this_tool  = 'CADD'   if is_cadd else '5ULTRA'
+    other_tool = '5ULTRA' if is_cadd else 'CADD'
+    cross_col  = f'Also in {other_tool}?'
     legends = [
         ('Colour coding', ''),
         ('  Green rows',  'Gene-phenotype pair significant in BOTH 5ULTRA and CADD'),
-        ('  Blue rows',   'Haematological trait (pheno codes 30010–30300), 5ULTRA-only or not shared'),
-        ('  Yellow rows', 'Biochemistry trait (pheno codes 30600–30880), 5ULTRA-only or not shared'),
+        ('  Blue rows',   f'Hematological trait (pheno codes 30000–30300), {this_tool}-only'),
+        ('  Yellow rows', f'Biochemistry trait (pheno codes 30600–30890), {this_tool}-only'),
         ('', ''),
         ('Columns', ''),
         ('  Gene',          'HGNC gene symbol'),
@@ -255,15 +253,13 @@ def write_legend(ws, is_cadd):
         ('  −log₁₀P',      'Best −log₁₀(P-value) across all model × spectrum combinations for this gene-phenotype pair'),
         ('  β (SD units)',  'REGENIE effect size estimate in standard deviation units of the phenotype'),
         ('  SE',            'Standard error of β'),
-        ('  k',             'Burden magnitude of the best model × spectrum (interpretation depends on "k type")'),
-        ('  k type',        'carriers = physical carrier count (Binary masks, weight=1, score-thresholded). '
-                            'W_PHRED burden = PHRED-weighted burden sum across all in-mask variants — NOT a '
-                            'carrier count (Weighted / Logic / Flux masks).'),
-        ('  Model',         '5ULTRA scoring model: Logic (rule-based), Binary (RF binary mask), Weighted (RF score-weighted), Flux Joint' if not is_cadd
-                            else 'CADD scoring model: Binary (CADD mask) or Weighted (CADD score-weighted)'),
-        ('  Mask',          "Burden mask applied: 5'UTR-DN (repressor class), 5'UTR-UP (enhancer class), Binary, or Weighted"),
-        ('  Spectrum',      'Allele frequency spectrum: AF < 1% (rare) or AF < 5% (af5)'),
-        ('  Shared',        'Yes = this gene-phenotype pair is also genome-wide significant in the other scorer'),
+        ('  k',             'Aggregate weighted allele count for the best model × spectrum: the sum of weighted '
+                            'allele dosages across all individuals (REGENIE --build-mask sum), not a raw carrier count'),
+        ('  Model',         'Burden model, named as in Materials and Methods ("Burden test design"): '
+                            + ('CADD All or CADD High-confidence' if is_cadd else
+                               '5ULTRA All, 5ULTRA High-confidence, 5ULTRA UP, 5ULTRA DN or 5ULTRA Joint (ACAT)')),
+        ('  Spectrum',      'Allele frequency spectrum: MAF < 0.1% (rare) or MAF < 5% (af5)'),
+        (f'  {cross_col}',  f'Yes = this gene-phenotype pair is also genome-wide significant in {other_tool}'),
     ]
     ws.column_dimensions['A'].width = 22
     ws.column_dimensions['B'].width = 80
@@ -277,7 +273,7 @@ wb = Workbook()
 wb.remove(wb.active)   # remove default empty sheet
 
 # Sheet 1: S3 — 5ULTRA GWS hits
-ws3 = wb.create_sheet('S3 – 5ULTRA GWS hits')
+ws3 = wb.create_sheet('S3 - 5ULTRA GWS hits')
 n3  = write_sheet(
     ws3, u_rows,
     header_color   = C_HEADER_U,
@@ -285,7 +281,9 @@ n3  = write_sheet(
     title_text     = (f'Supplementary Table S3. All {len(u_rows)} genome-wide significant 5ULTRA '
                       f'gene-phenotype associations (−log₁₀P > {THRESH_U:.3f}, k ≥ {TRUE_K_MIN}), '
                       f'sorted by −log₁₀P. Green = also significant in CADD; '
-                      f'blue = haematology; yellow = biochemistry.'),
+                      f'blue = hematology; yellow = biochemistry.'),
+    thresh_val     = THRESH_U,
+    n_tests        = N_TESTS_5ULTRA,
 )
 
 # Legend for S3
@@ -293,7 +291,7 @@ ws3_leg = wb.create_sheet('S3 Legend')
 write_legend(ws3_leg, is_cadd=False)
 
 # Sheet 2: S4 — CADD GWS hits
-ws4 = wb.create_sheet('S4 – CADD GWS hits')
+ws4 = wb.create_sheet('S4 - CADD GWS hits')
 n4  = write_sheet(
     ws4, c_rows,
     header_color   = C_HEADER_C,
@@ -301,7 +299,9 @@ n4  = write_sheet(
     title_text     = (f'Supplementary Table S4. All {len(c_rows)} genome-wide significant CADD '
                       f'gene-phenotype associations (−log₁₀P > {THRESH_C:.3f}, k ≥ {TRUE_K_MIN}), '
                       f'sorted by −log₁₀P. Green = also significant in 5ULTRA; '
-                      f'blue = haematology; yellow = biochemistry.'),
+                      f'blue = hematology; yellow = biochemistry.'),
+    thresh_val     = THRESH_C,
+    n_tests        = N_TESTS_CADD,
 )
 
 # Legend for S4 (reuse same sheet)
@@ -320,9 +320,9 @@ print("\nTop 10 5ULTRA hits:")
 for r in u_rows[:10]:
     sh = '✓' if r['Shared'] else ' '
     print(f"  {sh} {r['Gene']:12s}  {r['Phenotype']:26s}  logP={r['−log₁₀P']:7.2f}  "
-          f"β={r['β (SD units)']:+.3f}  k={r['k']:6.1f}({r['k type'][:4]})  {r['Model']}/{r['Mask']}/{r['Spectrum']}")
+          f"β={r['β (SD units)']:+.3f}  k={r['k']:6.1f}  {r['Model']} / {r['Spectrum']}")
 print("\nTop 10 CADD hits:")
 for r in c_rows[:10]:
     sh = '✓' if r['Shared'] else ' '
     print(f"  {sh} {r['Gene']:12s}  {r['Phenotype']:26s}  logP={r['−log₁₀P']:7.2f}  "
-          f"β={r['β (SD units)']:+.3f}  k={r['k']:6.1f}({r['k type'][:4]})  {r['Model']}/{r['Mask']}/{r['Spectrum']}")
+          f"β={r['β (SD units)']:+.3f}  k={r['k']:6.1f}  {r['Model']} / {r['Spectrum']}")

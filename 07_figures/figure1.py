@@ -23,7 +23,7 @@ import matplotlib.ticker as mticker
 from matplotlib.colors import LogNorm
 from scipy.stats import gaussian_kde
 
-DATA_DIR = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
+DATA_DIR = Path(os.environ.get('DATA_DIR', 'data'))
 
 # ── 0.  GLOBAL STYLE ──────────────────────────────────────────────────────────
 matplotlib.rcParams.update({

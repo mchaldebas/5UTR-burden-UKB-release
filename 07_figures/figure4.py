@@ -10,7 +10,7 @@ import matplotlib.lines as mlines
 from scipy import stats
 from adjustText import adjust_text
 
-DATA_DIR = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
+DATA_DIR = Path(os.environ.get('DATA_DIR', 'data'))
 
 matplotlib.rcParams.update({
     'font.family':       'Arial',

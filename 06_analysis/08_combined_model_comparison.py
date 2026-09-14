@@ -59,7 +59,7 @@ matplotlib.rcParams.update({
     "savefig.facecolor": "white",
 })
 
-DATA_DIR = Path(os.environ.get("DATA_DIR", "/Volumes/Dropbox Chaldeb/UKB-burden"))
+DATA_DIR = Path(os.environ.get("DATA_DIR", 'data'))
 OUT_DIR = Path(__file__).resolve().parent
 MASTER = DATA_DIR / "Master_Results_Clean.csv.gz"
 

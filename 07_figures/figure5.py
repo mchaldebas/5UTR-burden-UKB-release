@@ -30,7 +30,7 @@ import glob
 from scipy import stats
 from scipy.stats import norm
 
-DATA_DIR = Path(os.environ.get('DATA_DIR', '/Volumes/MCHALDEBAS3/UKB-500k/UKB-data'))
+DATA_DIR = Path(os.environ.get('DATA_DIR', 'data'))
 
 # ── Style — Nature/Science journal standards ──────────────────────────────────
 matplotlib.rcParams.update({

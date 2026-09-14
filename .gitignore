@@ -1,26 +1,87 @@
-# OS / editor junk
-.DS_Store
+# =============================================================================
+# NOTHING DERIVED FROM INDIVIDUAL-LEVEL UK BIOBANK DATA MAY BE COMMITTED.
+# The UKB Material Transfer Agreement forbids redistributing individual-level
+# data or participant identifiers. Analyses run inside the UK Biobank Research
+# Analysis Platform; this repository holds CODE ONLY.
+# =============================================================================
 
-# Python bytecode
-__pycache__/
-*.pyc
-
-# NEVER commit individual-level UK Biobank data or anything derived per-participant
+# --- Participant identifiers (EID lists used for --keep) ---------------------
 *_ids_numeric.txt
-pheno_covar_final*.txt
+*_ids.txt
+*.keep
+keep_*.txt
+
+# --- Phenotype / covariate / clinical tables (one row per participant) -------
 covariates*.csv
-ukb_*_raw.csv
+covariates*.tsv
+pheno*.txt
+pheno*.csv
+pheno_covar*
+*icd10*.csv
+*_raw.csv
+
+# --- Genotype / dosage / burden extracts -------------------------------------
 *.pgen
-*.psam
 *.pvar
+*.psam
 *.bed
 *.bim
 *.fam
-*.loco
-*.loco.gz
+*.raw
+*.bgen
+*.sample
+*.vcf
+*.vcf.gz
+*rheostat_burden*
+*_burden_*.tsv.gz
 final_complete_set/
-# Large aggregated inputs (regenerate on the approved platform via DATA_DIR)
-Master_Results_Clean.csv.gz
-Final_Triad_Comparison.csv.gz
+
+# --- REGENIE outputs ---------------------------------------------------------
 *.regenie
 *.regenie.gz
+*.loco
+*.loco.gz
+*_pred.list
+step1_*
+results_final_clean*/
+
+# --- Summary-statistic inputs (regenerate via DATA_DIR) ----------------------
+Master_Results_Clean*.csv.gz
+Final_Triad_Comparison*.csv.gz
+Nature_2025_Reproduction_Data.csv
+unannotated_5utr_variants*.tsv
+*.csv.gz
+*.tsv.gz
+data/
+
+# --- Generated outputs (regenerate from code; keep the repo a code repo) -----
+*.png
+*.pdf
+*.xlsx
+*.docx
+*.pptx
+
+# --- Per-run analysis outputs ------------------------------------------------
+combined_model_*.csv
+cross_ancestry_*.csv
+nature2025_*.tsv
+directionality_*.tsv
+ptv_k_floor_sensitivity.tsv
+threshold_sensitivity_*.tsv
+exclusive_hits_coverage_*.tsv
+pqtl_lead_summary.tsv
+ablated_pairs_in_5ultra.tsv
+rheostat_beta_equality_*.tsv
+Figure3_rheostat_equality.tsv
+Figure3_category_counts.tsv
+rheostat_gene_chrom.tsv
+
+# --- Environment / editor ----------------------------------------------------
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/
+.venv/
+
+# --- Exception: the public gene/phenotype pair list used by the rheostat test -
+!06_analysis/rheostat_pairs_nfe.txt
